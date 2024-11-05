@@ -5,6 +5,7 @@
 #include <sstream>
 #include <winsock2.h>
 #include <windows.h>
+#include <thread>
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma warning(disable: 4996)
@@ -25,16 +26,17 @@ struct Command {
     virtual ~Command() {}
 };
 
-struct ClearDisplay : Command {
+struct fillScreen : Command {
     const uint16_t color;
-    ClearDisplay(const uint16_t color) : Command(CLEAR_DISPLAY_OPCODE), color(color) {};
+    fillScreen(const uint16_t color) : Command(CLEAR_DISPLAY_OPCODE), color(color) {};
 };
 
 struct DrawPixel : Command {
     const int16_t x0, y0;
+    const int16_t newX, newY;
     const uint16_t color;
-    DrawPixel(const int16_t x0, const int16_t y0, const uint16_t color) :
-        Command(DRAW_PIXEL_OPCODE), x0(x0), y0(y0), color(color) {};
+    DrawPixel(const int16_t x0, const int16_t y0, const int16_t newX, const int16_t newY, const uint16_t color) :
+        Command(DRAW_PIXEL_OPCODE), x0(x0), y0(y0), newX(newX), newY(newY), color(color) {};
 };
 
 struct DrawLine : Command {
@@ -90,7 +92,7 @@ public:
                 throw std::invalid_argument("Invalid parameters for clear display");
             }
             uint16_t color = parseColor(byteArray, 1);
-            command = new ClearDisplay(color);
+            command = new fillScreen(color);
             break;
         }
         case DRAW_PIXEL_OPCODE: {
@@ -100,7 +102,10 @@ public:
             int16_t x0 = parseInt16(byteArray, 1);
             int16_t y0 = parseInt16(byteArray, 3);
             uint16_t color = parseColor(byteArray, 5);
-            command = new DrawPixel(x0, y0, color);
+
+            int16_t newX = x0 + 50;
+            int16_t newY = y0 + 50;
+            command = new DrawPixel(x0, y0, newX, newY, color);
             break;
         }
         case DRAW_LINE_OPCODE: {
@@ -178,12 +183,10 @@ private:
     }
 };
 
-// Глобальні змінні для графічного вікна
 HWND hwnd;
 HDC hdc;
 DisplayProtocol protocol;
 
-// Функція обробки повідомлень вікна
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_DESTROY:
@@ -197,52 +200,57 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 void DrawCommand(Command* command) {
     switch (command->opcode) {
     case CLEAR_DISPLAY_OPCODE: {
-        ClearDisplay* clearCommand = static_cast<ClearDisplay*>(command);
+        fillScreen* clearCommand = static_cast<fillScreen*>(command);
         HBRUSH brush = CreateSolidBrush(RGB((clearCommand->color >> 8) & 0xFF, clearCommand->color & 0xFF, 0));
-        RECT rect = { 0, 0, 800, 600 }; 
-        FillRect(hdc, &rect, brush);    
+        RECT rect = { 0, 0, 800, 600 }; // Припустимо, що розмір вікна 800x600
+        FillRect(hdc, &rect, brush);
         DeleteObject(brush);
         break;
     }
     case DRAW_PIXEL_OPCODE: {
-        DrawPixel* drawPixelCommand = static_cast<DrawPixel*>(command);
-        SetPixel(hdc, drawPixelCommand->x0, drawPixelCommand->y0,
-            RGB((drawPixelCommand->color >> 8) & 0xFF, drawPixelCommand->color & 0xFF, 0));
+        DrawPixel* pixelCommand = static_cast<DrawPixel*>(command);
+        int pixelSize = 10; 
+        HBRUSH brush = CreateSolidBrush(RGB((pixelCommand->color >> 8) & 0xFF, pixelCommand->color & 0xFF, 0));
+        RECT rect = { pixelCommand->newX, pixelCommand->newY, pixelCommand->newX + pixelSize, pixelCommand->newY + pixelSize };
+        FillRect(hdc, &rect, brush);
+        DeleteObject(brush);
         break;
     }
     case DRAW_LINE_OPCODE: {
-        DrawLine* drawLineCommand = static_cast<DrawLine*>(command);
-        HPEN pen = CreatePen(PS_SOLID, 1,
-            RGB((drawLineCommand->color >> 8) & 0xFF, drawLineCommand->color & 0xFF, 0));
+        DrawLine* lineCommand = static_cast<DrawLine*>(command);
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB((lineCommand->color >> 8) & 0xFF, lineCommand->color & 0xFF, 0));
         SelectObject(hdc, pen);
-        MoveToEx(hdc, drawLineCommand->x0, drawLineCommand->y0, NULL);
-        LineTo(hdc, drawLineCommand->x1, drawLineCommand->y1);
+        MoveToEx(hdc, lineCommand->x0, lineCommand->y0, NULL);
+        LineTo(hdc, lineCommand->x1, lineCommand->y1);
         DeleteObject(pen);
         break;
     }
     case DRAW_RECTANGLE_OPCODE: {
-        DrawRectangle* drawRectCommand = static_cast<DrawRectangle*>(command);
-        HBRUSH brush = CreateSolidBrush(RGB((drawRectCommand->color >> 8) & 0xFF, drawRectCommand->color & 0xFF, 0));
+        DrawRectangle* rectCommand = static_cast<DrawRectangle*>(command);
+        HBRUSH brush = CreateSolidBrush(RGB((rectCommand->color >> 8) & 0xFF, rectCommand->color & 0xFF, 0));
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB((rectCommand->color >> 8) & 0xFF, rectCommand->color & 0xFF, 0));
         SelectObject(hdc, brush);
-        Rectangle(hdc, drawRectCommand->x0, drawRectCommand->y0, drawRectCommand->x1, drawRectCommand->y1);
+        SelectObject(hdc, pen);
+        Rectangle(hdc, rectCommand->x0, rectCommand->y0, rectCommand->x1, rectCommand->y1);
         DeleteObject(brush);
+        DeleteObject(pen);
         break;
     }
     case FILL_RECTANGLE_OPCODE: {
         FillRectangle* fillRectCommand = static_cast<FillRectangle*>(command);
         HBRUSH brush = CreateSolidBrush(RGB((fillRectCommand->color >> 8) & 0xFF, fillRectCommand->color & 0xFF, 0));
         SelectObject(hdc, brush);
-        Rectangle(hdc, fillRectCommand->x0, fillRectCommand->y0, fillRectCommand->x1, fillRectCommand->y1);
+        RECT rect = { fillRectCommand->x0, fillRectCommand->y0, fillRectCommand->x1, fillRectCommand->y1 };
+        FillRect(hdc, &rect, brush);
         DeleteObject(brush);
         break;
     }
     case DRAW_ELLIPSE_OPCODE: {
-        DrawEllipse* drawEllipseCommand = static_cast<DrawEllipse*>(command);
-        HPEN pen = CreatePen(PS_SOLID, 1,
-            RGB((drawEllipseCommand->color >> 8) & 0xFF, drawEllipseCommand->color & 0xFF, 0));
+        DrawEllipse* ellipseCommand = static_cast<DrawEllipse*>(command);
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB((ellipseCommand->color >> 8) & 0xFF, ellipseCommand->color & 0xFF, 0));
         SelectObject(hdc, pen);
-        Ellipse(hdc, drawEllipseCommand->x0 - drawEllipseCommand->rx, drawEllipseCommand->y0 - drawEllipseCommand->ry,
-            drawEllipseCommand->x0 + drawEllipseCommand->rx, drawEllipseCommand->y0 + drawEllipseCommand->ry);
+        Ellipse(hdc, ellipseCommand->x0 - ellipseCommand->rx, ellipseCommand->y0 - ellipseCommand->ry,
+            ellipseCommand->x0 + ellipseCommand->rx, ellipseCommand->y0 + ellipseCommand->ry);
         DeleteObject(pen);
         break;
     }
@@ -255,6 +263,34 @@ void DrawCommand(Command* command) {
         DeleteObject(brush);
         break;
     }
+    }
+}
+
+void NetworkThread(SOCKET serverSocket) {
+    sockaddr_in clientAddr;
+    int clientAddrSize = sizeof(clientAddr);
+    std::vector<uint8_t> buffer(1024);
+
+    while (true) {
+        int recvSize = recvfrom(serverSocket, (char*)buffer.data(), buffer.size(), 0, (sockaddr*)&clientAddr, &clientAddrSize);
+        if (recvSize == SOCKET_ERROR) {
+            std::cerr << "Error receiving data" << std::endl;
+            continue;
+        }
+
+        Command* command = nullptr;
+        try {
+            buffer.resize(recvSize);
+            protocol.parseCommand(buffer, command);
+            if (command) {
+                // Відправка повідомлення для основного потоку для малювання
+                PostMessage(hwnd, WM_USER + 1, 0, (LPARAM)command);
+            }
+        }
+        catch (const std::invalid_argument& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+        }
+        buffer.resize(1024);
     }
 }
 
@@ -275,7 +311,7 @@ int main() {
         return -1;
     }
 
-    sockaddr_in serverAddr, clientAddr;
+    sockaddr_in serverAddr;
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(1111); // Порт
     serverAddr.sin_addr.s_addr = INADDR_ANY;
@@ -292,53 +328,29 @@ int main() {
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = GetModuleHandle(NULL);
     wc.lpszClassName = L"DrawingWindow";
-
     RegisterClass(&wc);
-    hwnd = CreateWindow(wc.lpszClassName, L"Graphic Display",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, NULL, NULL, wc.hInstance, NULL);
 
+    hwnd = CreateWindow(wc.lpszClassName, L"Graphic Display", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, NULL, NULL, wc.hInstance, NULL);
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
-
     hdc = GetDC(hwnd);
 
-    int clientAddrSize = sizeof(clientAddr);
-    std::vector<uint8_t> buffer(1024);
+    // Запуск мережевого потоку
+    std::thread networkThread(NetworkThread, serverSocket);
+    networkThread.detach();
 
-    while (true) {
-        MSG msg;
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-            if (msg.message == WM_QUIT) {
-                ReleaseDC(hwnd, hdc);
-                closesocket(serverSocket);
-                WSACleanup();
-                return 0;
-            }
+    // Основний цикл обробки повідомлень
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+        if (msg.message == WM_USER + 1) {
+            Command* command = (Command*)msg.lParam;
+            DrawCommand(command); 
+            delete command; 
         }
-
-        int recvSize = recvfrom(serverSocket, (char*)buffer.data(), buffer.size(), 0, (sockaddr*)&clientAddr, &clientAddrSize);
-        if (recvSize == SOCKET_ERROR) {
-            std::cerr << "Error receiving data" << std::endl;
-            continue;
-        }
-
-        Command* command = nullptr;
-        try {
-            buffer.resize(recvSize);
-            protocol.parseCommand(buffer, command);
-            if (command) {
-                DrawCommand(command); // Виклик функції для малювання
-                delete command;
-            }
-        }
-        catch (const std::invalid_argument& e) {
-            std::cerr << "Error: " << e.what() << std::endl;
-        }
-        buffer.resize(1024);
     }
-   
+
     ReleaseDC(hwnd, hdc);
     closesocket(serverSocket);
     WSACleanup();

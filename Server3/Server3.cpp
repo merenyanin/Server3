@@ -17,7 +17,8 @@ enum CommandOpcode {
     DRAW_RECTANGLE_OPCODE,
     FILL_RECTANGLE_OPCODE,
     DRAW_ELLIPSE_OPCODE,
-    FILL_ELLIPSE_OPCODE
+    FILL_ELLIPSE_OPCODE,
+    DRAW_TEXT_OPCODE
 };
 
 struct Command {
@@ -77,6 +78,13 @@ struct FillEllipse : Command {
     FillEllipse(const int16_t x0, const int16_t y0, const int16_t rx, const int16_t ry,
         const uint16_t color) :
         Command(FILL_ELLIPSE_OPCODE), x0(x0), y0(y0), rx(rx), ry(ry), color(color) {}
+};
+struct Drawtext : Command {
+    const int16_t x, y; // Початкові координати тексту
+    const uint16_t color; // Колір тексту
+    const std::string text; // Сам текст
+    Drawtext(int16_t x, int16_t y, uint16_t color, const std::string& text)
+        : Command(DRAW_TEXT_OPCODE), x(x), y(y), color(color), text(text) {}
 };
 
 class DisplayProtocol {
@@ -168,6 +176,24 @@ public:
             command = new FillEllipse(x0, y0, rx, ry, color);
             break;
         }
+
+        case DRAW_TEXT_OPCODE: {  // Додаємо нову команду для малювання тексту
+            if (byteArray.size() < 7) {
+                throw std::invalid_argument("Invalid parameters for draw text");
+            }
+
+            // Отримуємо координати
+            int16_t x = parseInt16(byteArray, 1);
+            int16_t y = parseInt16(byteArray, 3);
+            uint16_t color = parseColor(byteArray, 5);
+
+            // Витягнення тексту з байтового масиву (якщо текст міститься після координат)
+            std::string text(reinterpret_cast<const char*>(&byteArray[7]), byteArray.size() - 7);
+
+            // Створення команди для малювання тексту
+            command = new Drawtext(x, y, color, text);
+            break;
+        }
         default:
             throw std::invalid_argument("Invalid command opcode");
         }
@@ -196,20 +222,139 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+
+void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
+    const int baseWidth = 40;
+    const int baseHeight = 50;
+    const int width = baseWidth * scale;
+    const int height = baseHeight * scale;
+
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB((color >> 8) & 0xFF, color & 0xFF, 0));
+    SelectObject(hdc, pen);
+
+    int startX = x;
+    int startY = y;
+
+  
+    switch (c) {
+    case 'A': {
+       
+        MoveToEx(hdc, startX, startY + height, NULL);
+        LineTo(hdc, startX + width / 2, startY);
+        LineTo(hdc, startX + width, startY + height);
+        MoveToEx(hdc, startX + width / 4, startY + height / 2, NULL);
+        LineTo(hdc, startX + 3 * width / 4, startY + height / 2);
+        break;
+    }
+    case 'H': {
+      
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX, startY + height);
+        MoveToEx(hdc, startX + width, startY, NULL);
+        LineTo(hdc, startX + width, startY + height);
+        MoveToEx(hdc, startX, startY + height / 2, NULL);
+        LineTo(hdc, startX + width, startY + height / 2);
+        break;
+    }
+    case 'E': {
+       
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX, startY + height);
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX + width, startY);
+        MoveToEx(hdc, startX, startY + height / 2, NULL);
+        LineTo(hdc, startX + width, startY + height / 2);
+        MoveToEx(hdc, startX, startY + height, NULL);
+        LineTo(hdc, startX + width, startY + height);
+        break;
+    }
+    case 'L': {
+      
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX, startY + height);
+        MoveToEx(hdc, startX, startY + height, NULL);
+        LineTo(hdc, startX + width, startY + height);
+        break;
+    }
+    case 'O': {
+        MoveToEx(hdc, startX, startY + height, NULL);       
+        LineTo(hdc, startX + width, startY + height);       
+        LineTo(hdc, startX + width, startY);                
+        LineTo(hdc, startX, startY);                       
+        LineTo(hdc, startX, startY + height);             
+        break;
+    }
+    case 'W': {
+       
+        int topLeftX = startX;
+        int topRightX = startX + width;
+        int bottomLeftX = startX + width / 4;
+        int bottomMiddleX = startX + width / 2;
+        int bottomRightX = startX + 3 * width / 4;
+        int bottomY = startY + height;
+        MoveToEx(hdc, topLeftX, startY, NULL);           
+        LineTo(hdc, bottomLeftX, bottomY);                
+        LineTo(hdc, bottomMiddleX, startY + height / 2);   
+        LineTo(hdc, bottomRightX, bottomY);                
+        LineTo(hdc, topRightX, startY);                   
+        break;
+    }
+      case 'R': {
+    MoveToEx(hdc, startX, startY, NULL);
+    LineTo(hdc, startX, startY + height);
+    MoveToEx(hdc, startX, startY, NULL);
+    LineTo(hdc, startX + width / 2, startY);
+    MoveToEx(hdc, startX + width / 2, startY, NULL);
+    LineTo(hdc, startX + width / 2, startY + height / 2);
+    MoveToEx(hdc, startX, startY + height / 2, NULL);
+    LineTo(hdc, startX + width / 2, startY + height / 2);
+    MoveToEx(hdc, startX + width / 12, startY + height / 2, NULL);
+    LineTo(hdc, startX + width / 2 + width / 8, startY + height);
+    break;
+}
+
+      case 'D': {
+       
+          MoveToEx(hdc, startX, startY, NULL);
+          LineTo(hdc, startX, startY + height);
+  
+          MoveToEx(hdc, startX, startY, NULL);
+          LineTo(hdc, startX + width / 2, startY);
+          MoveToEx(hdc, startX, startY + height, NULL);
+          LineTo(hdc, startX + width / 2, startY + height);
+          int radius = height / 1.8;
+          int centerX = startX + width / 2;
+          int centerY = startY + radius;
+          Arc(hdc, centerX - radius, centerY - radius, centerX + radius, centerY + radius, startX + width / 2, startY + height, startX + width / 2, startY);
+
+          break;
+      }
+
+    }
+
+    DeleteObject(pen);
+}
+
+
+
 // Функція для малювання
 void DrawCommand(Command* command) {
     switch (command->opcode) {
+
     case CLEAR_DISPLAY_OPCODE: {
         fillScreen* clearCommand = static_cast<fillScreen*>(command);
-        HBRUSH brush = CreateSolidBrush(RGB((clearCommand->color >> 8) & 0xFF, clearCommand->color & 0xFF, 0));
-        RECT rect = { 0, 0, 800, 600 }; // Припустимо, що розмір вікна 800x600
+        int r = ((clearCommand->color >> 11) & 0x1F) * 255 / 31;
+        int g = ((clearCommand->color >> 5) & 0x3F) * 255 / 63;
+        int b = (clearCommand->color & 0x1F) * 255 / 31;
+        HBRUSH brush = CreateSolidBrush(RGB(r, g, b));
+        RECT rect = { 0, 0, 800, 600 };
         FillRect(hdc, &rect, brush);
         DeleteObject(brush);
         break;
     }
     case DRAW_PIXEL_OPCODE: {
         DrawPixel* pixelCommand = static_cast<DrawPixel*>(command);
-        int pixelSize = 10; 
+        int pixelSize = 10;
         HBRUSH brush = CreateSolidBrush(RGB((pixelCommand->color >> 8) & 0xFF, pixelCommand->color & 0xFF, 0));
         RECT rect = { pixelCommand->newX, pixelCommand->newY, pixelCommand->newX + pixelSize, pixelCommand->newY + pixelSize };
         FillRect(hdc, &rect, brush);
@@ -261,6 +406,17 @@ void DrawCommand(Command* command) {
         Ellipse(hdc, fillEllipseCommand->x0 - fillEllipseCommand->rx, fillEllipseCommand->y0 - fillEllipseCommand->ry,
             fillEllipseCommand->x0 + fillEllipseCommand->rx, fillEllipseCommand->y0 + fillEllipseCommand->ry);
         DeleteObject(brush);
+        break;
+    }
+    case DRAW_TEXT_OPCODE: {
+        Drawtext* textCommand = static_cast<Drawtext*>(command);
+        int x = textCommand->x;
+        int y = textCommand->y;
+
+        for (char c : textCommand->text) {
+            drawCharacter(hdc, c, x, y, textCommand->color, 0.5f); 
+            x += 6;
+        }
         break;
     }
     }
@@ -346,8 +502,8 @@ int main() {
         DispatchMessage(&msg);
         if (msg.message == WM_USER + 1) {
             Command* command = (Command*)msg.lParam;
-            DrawCommand(command); 
-            delete command; 
+            DrawCommand(command);
+            delete command;
         }
     }
 

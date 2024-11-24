@@ -18,7 +18,12 @@ enum CommandOpcode {
     FILL_RECTANGLE_OPCODE,
     DRAW_ELLIPSE_OPCODE,
     FILL_ELLIPSE_OPCODE,
-    DRAW_TEXT_OPCODE
+    DRAW_TEXT_OPCODE,
+
+    // Нові опкоди
+    SET_ORIENTATION_OPCODE, // для встановлення орієнтації
+    GET_WIDTH_OPCODE,       // для запиту ширини
+    GET_HEIGHT_OPCODE       // для запиту висоти
 };
 
 struct Command {
@@ -80,13 +85,28 @@ struct FillEllipse : Command {
         Command(FILL_ELLIPSE_OPCODE), x0(x0), y0(y0), rx(rx), ry(ry), color(color) {}
 };
 struct Drawtext : Command {
-    const int16_t x, y; // Початкові координати тексту
-    const uint16_t color; // Колір тексту
-    const std::string text; // Сам текст
+    const int16_t x, y; 
+    const uint16_t color; 
+    const std::string text; 
     Drawtext(int16_t x, int16_t y, uint16_t color, const std::string& text)
         : Command(DRAW_TEXT_OPCODE), x(x), y(y), color(color), text(text) {}
 };
+struct SetOrientation : Command {
+    const int orientation;  
+    SetOrientation(int orientation) : Command(SET_ORIENTATION_OPCODE), orientation(orientation) {}
+};
 
+struct GetWidth : Command {
+    GetWidth() : Command(GET_WIDTH_OPCODE) {}
+};
+
+struct GetHeight : Command {
+    GetHeight() : Command(GET_HEIGHT_OPCODE) {}
+};
+
+int width = 800;
+int height = 600;
+int orientation = 0; 
 class DisplayProtocol {
 public:
     void parseCommand(const std::vector<uint8_t>& byteArray, Command*& command) {
@@ -176,8 +196,7 @@ public:
             command = new FillEllipse(x0, y0, rx, ry, color);
             break;
         }
-
-        case DRAW_TEXT_OPCODE: {  // Додаємо нову команду для малювання тексту
+        case DRAW_TEXT_OPCODE: {
             if (byteArray.size() < 7) {
                 throw std::invalid_argument("Invalid parameters for draw text");
             }
@@ -187,17 +206,43 @@ public:
             int16_t y = parseInt16(byteArray, 3);
             uint16_t color = parseColor(byteArray, 5);
 
-            // Витягнення тексту з байтового масиву (якщо текст міститься після координат)
+            // Отримуємо текст після координат
             std::string text(reinterpret_cast<const char*>(&byteArray[7]), byteArray.size() - 7);
 
             // Створення команди для малювання тексту
             command = new Drawtext(x, y, color, text);
             break;
         }
+        case SET_ORIENTATION_OPCODE: {
+            if (byteArray.size() <2) {
+                throw std::invalid_argument("Invalid parameters for set orientation");
+            }
+            int orientation = (byteArray[1] << 8) | byteArray[2];
+            if (orientation != 0 && orientation != 90 && orientation != 180 && orientation != 270) {
+                throw std::invalid_argument("Invalid orientation value");
+            }
+            command = new SetOrientation(orientation);
+            break;
+        }
+        case GET_WIDTH_OPCODE: {
+            if (byteArray.size() != 1) {
+                throw std::invalid_argument("Invalid parameters for get width");
+            }
+            command = new GetWidth();
+            break;
+        }
+        case GET_HEIGHT_OPCODE: {
+            if (byteArray.size() != 1) {
+                throw std::invalid_argument("Invalid parameters for get height");
+            }
+            command = new GetHeight();
+            break;
+        }
         default:
             throw std::invalid_argument("Invalid command opcode");
         }
     }
+
 
 private:
     uint16_t parseColor(const std::vector<uint8_t>& byteArray, size_t start) {
@@ -299,21 +344,21 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
         LineTo(hdc, topRightX, startY);                   
         break;
     }
-      case 'R': {
-    MoveToEx(hdc, startX, startY, NULL);
-    LineTo(hdc, startX, startY + height);
-    MoveToEx(hdc, startX, startY, NULL);
-    LineTo(hdc, startX + width / 2, startY);
-    MoveToEx(hdc, startX + width / 2, startY, NULL);
-    LineTo(hdc, startX + width / 2, startY + height / 2);
-    MoveToEx(hdc, startX, startY + height / 2, NULL);
-    LineTo(hdc, startX + width / 2, startY + height / 2);
-    MoveToEx(hdc, startX + width / 12, startY + height / 2, NULL);
-    LineTo(hdc, startX + width / 2 + width / 8, startY + height);
-    break;
-}
+     case 'R': {
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX, startY + height);
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX + width / 2, startY);
+        MoveToEx(hdc, startX + width / 2, startY, NULL);
+        LineTo(hdc, startX + width / 2, startY + height / 2);
+        MoveToEx(hdc, startX, startY + height / 2, NULL);
+        LineTo(hdc, startX + width / 2, startY + height / 2);
+        MoveToEx(hdc, startX + width / 12, startY + height / 2, NULL);
+        LineTo(hdc, startX + width / 2 + width / 8, startY + height);
+        break;
+     }
 
-      case 'D': {
+     case 'D': {
        
           MoveToEx(hdc, startX, startY, NULL);
           LineTo(hdc, startX, startY + height);
@@ -417,6 +462,20 @@ void DrawCommand(Command* command) {
             drawCharacter(hdc, c, x, y, textCommand->color, 0.5f); 
             x += 6;
         }
+        break;
+    }
+    case SET_ORIENTATION_OPCODE: {
+        SetOrientation* setOrientationCommand = static_cast<SetOrientation*>(command);
+        orientation = setOrientationCommand->orientation;
+        std::cout << "Orientation set to: " << orientation << " degrees" << std::endl;
+        break;
+    }
+    case GET_WIDTH_OPCODE: {
+        std::cout << "Display width: " << width << std::endl;
+        break;
+    }
+    case GET_HEIGHT_OPCODE: {
+        std::cout << "Display height: " << height << std::endl;
         break;
     }
     }

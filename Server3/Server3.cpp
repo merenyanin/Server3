@@ -467,9 +467,65 @@ void DrawCommand(Command* command) {
     case SET_ORIENTATION_OPCODE: {
         SetOrientation* setOrientationCommand = static_cast<SetOrientation*>(command);
         orientation = setOrientationCommand->orientation;
+
+        switch (orientation) {
+        case 0:
+            SetGraphicsMode(hdc, GM_ADVANCED); 
+            ModifyWorldTransform(hdc, NULL, MWT_IDENTITY);
+            break;
+
+        case 90:
+            SetGraphicsMode(hdc, GM_ADVANCED);
+            {
+                XFORM xform = { 0 };
+                xform.eM11 = 0.0f;
+                xform.eM12 = 1.0f;
+                xform.eM21 = -1.0f;
+                xform.eM22 = 0.0f;
+                xform.eDx = height;
+                xform.eDy = 0.0f;
+                SetWorldTransform(hdc, &xform);
+            }
+            break;
+
+        case 180:
+            SetGraphicsMode(hdc, GM_ADVANCED);
+            {
+                XFORM xform = { 0 };
+                xform.eM11 = -1.0f;
+                xform.eM12 = 0.0f;
+                xform.eM21 = 0.0f;
+                xform.eM22 = -1.0f;
+                xform.eDx = width;
+                xform.eDy = height;
+                SetWorldTransform(hdc, &xform);
+            }
+            break;
+
+        case 270:
+            SetGraphicsMode(hdc, GM_ADVANCED);
+            {
+                XFORM xform = { 0 };
+                xform.eM11 = 0.0f;
+                xform.eM12 = -1.0f;
+                xform.eM21 = 1.0f;
+                xform.eM22 = 0.0f;
+                xform.eDx = 0.0f;
+                xform.eDy = width;
+                SetWorldTransform(hdc, &xform);
+            }
+            break;
+
+        default:
+            std::cerr << "Invalid orientation value: " << orientation << std::endl;
+            break;
+        }
+
         std::cout << "Orientation set to: " << orientation << " degrees" << std::endl;
         break;
     }
+
+
     case GET_WIDTH_OPCODE: {
         std::cout << "Display width: " << width << std::endl;
         break;

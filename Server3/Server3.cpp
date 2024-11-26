@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <thread>
+#include <map>
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma warning(disable: 4996)
@@ -19,11 +20,11 @@ enum CommandOpcode {
     DRAW_ELLIPSE_OPCODE,
     FILL_ELLIPSE_OPCODE,
     DRAW_TEXT_OPCODE,
-
-    // Нові опкоди
-    SET_ORIENTATION_OPCODE, // для встановлення орієнтації
-    GET_WIDTH_OPCODE,       // для запиту ширини
-    GET_HEIGHT_OPCODE       // для запиту висоти
+    SET_ORIENTATION_OPCODE, 
+    GET_WIDTH_OPCODE,       
+    GET_HEIGHT_OPCODE,
+    LOAD_SPRITE_OPCODE,    
+    SHOW_SPRITE_OPCODE
 };
 
 struct Command {
@@ -85,14 +86,14 @@ struct FillEllipse : Command {
         Command(FILL_ELLIPSE_OPCODE), x0(x0), y0(y0), rx(rx), ry(ry), color(color) {}
 };
 struct Drawtext : Command {
-    const int16_t x, y; 
-    const uint16_t color; 
-    const std::string text; 
+    const int16_t x, y;
+    const uint16_t color;
+    const std::string text;
     Drawtext(int16_t x, int16_t y, uint16_t color, const std::string& text)
         : Command(DRAW_TEXT_OPCODE), x(x), y(y), color(color), text(text) {}
 };
 struct SetOrientation : Command {
-    const int orientation;  
+    const int orientation;
     SetOrientation(int orientation) : Command(SET_ORIENTATION_OPCODE), orientation(orientation) {}
 };
 
@@ -103,10 +104,31 @@ struct GetWidth : Command {
 struct GetHeight : Command {
     GetHeight() : Command(GET_HEIGHT_OPCODE) {}
 };
+struct LoadSprite : Command {
+    const uint16_t index;       
+    const uint16_t width;       
+    const uint16_t height;      
+    const std::vector<uint8_t> data; 
+
+    LoadSprite(uint16_t index, uint16_t width, uint16_t height, const std::vector<uint8_t>& data)
+        : Command(LOAD_SPRITE_OPCODE), 
+        index(index), width(width), height(height), data(data) {}
+};
+
+struct ShowSprite : Command {
+    const uint16_t index; 
+    const int16_t x;    
+    const int16_t y;      
+
+    ShowSprite(uint16_t index, int16_t x, int16_t y)
+        : Command(SHOW_SPRITE_OPCODE), 
+        index(index), x(x), y(y) {}
+};
+
 
 int width = 800;
 int height = 600;
-int orientation = 0; 
+int orientation = 0;
 class DisplayProtocol {
 public:
     void parseCommand(const std::vector<uint8_t>& byteArray, Command*& command) {
@@ -201,20 +223,19 @@ public:
                 throw std::invalid_argument("Invalid parameters for draw text");
             }
 
-            // Отримуємо координати
+         
             int16_t x = parseInt16(byteArray, 1);
             int16_t y = parseInt16(byteArray, 3);
             uint16_t color = parseColor(byteArray, 5);
 
-            // Отримуємо текст після координат
+           
             std::string text(reinterpret_cast<const char*>(&byteArray[7]), byteArray.size() - 7);
 
-            // Створення команди для малювання тексту
             command = new Drawtext(x, y, color, text);
             break;
         }
         case SET_ORIENTATION_OPCODE: {
-            if (byteArray.size() <2) {
+            if (byteArray.size() < 2) {
                 throw std::invalid_argument("Invalid parameters for set orientation");
             }
             int orientation = (byteArray[1] << 8) | byteArray[2];
@@ -238,6 +259,41 @@ public:
             command = new GetHeight();
             break;
         }
+        case LOAD_SPRITE_OPCODE: {
+            if (byteArray.size() < 7) {
+                throw std::invalid_argument("Invalid parameters for load sprite");
+            }
+            uint16_t index = parseInt16(byteArray, 1);  
+            uint16_t width = parseInt16(byteArray, 3); 
+            uint16_t height = parseInt16(byteArray, 5);
+
+          
+            size_t dataSize = byteArray.size() - 7;
+            if (dataSize != static_cast<size_t>(width * height)) {
+                throw std::invalid_argument("Sprite data size does not match dimensions");
+            }
+
+        
+            std::vector<uint8_t> data(byteArray.begin() + 7, byteArray.end());
+
+          
+            command = new LoadSprite(index, width, height, data);
+            break;
+        }
+
+        case SHOW_SPRITE_OPCODE: {
+            if (byteArray.size() != 7) {
+                throw std::invalid_argument("Invalid parameters for show sprite");
+            }
+            uint16_t index = parseInt16(byteArray, 1); 
+            int16_t x = parseInt16(byteArray, 3);     
+            int16_t y = parseInt16(byteArray, 5);    
+
+           
+            command = new ShowSprite(index, x, y);
+            break;
+        }
+
         default:
             throw std::invalid_argument("Invalid command opcode");
         }
@@ -245,12 +301,18 @@ public:
 
 
 private:
-    uint16_t parseColor(const std::vector<uint8_t>& byteArray, size_t start) {
-        return (byteArray[start] << 8) | byteArray[start + 1];
+    uint16_t parseColor(const std::vector<uint8_t>& byteArray, size_t offset) {
+        if (offset + 1 >= byteArray.size()) {
+            throw std::out_of_range("Invalid offset for parseColor");
+        }
+        return static_cast<uint16_t>((byteArray[offset] << 8) | byteArray[offset + 1]);
     }
 
-    int16_t parseInt16(const std::vector<uint8_t>& byteArray, size_t start) {
-        return (byteArray[start] << 8) | byteArray[start + 1];
+    int16_t parseInt16(const std::vector<uint8_t>& byteArray, size_t offset) {
+        if (offset + 1 >= byteArray.size()) {
+            throw std::out_of_range("Invalid offset for parseInt16");
+        }
+        return static_cast<int16_t>((byteArray[offset] << 8) | byteArray[offset + 1]);
     }
 };
 
@@ -280,10 +342,10 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
     int startX = x;
     int startY = y;
 
-  
+
     switch (c) {
     case 'A': {
-       
+
         MoveToEx(hdc, startX, startY + height, NULL);
         LineTo(hdc, startX + width / 2, startY);
         LineTo(hdc, startX + width, startY + height);
@@ -292,7 +354,7 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
         break;
     }
     case 'H': {
-      
+
         MoveToEx(hdc, startX, startY, NULL);
         LineTo(hdc, startX, startY + height);
         MoveToEx(hdc, startX + width, startY, NULL);
@@ -302,7 +364,7 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
         break;
     }
     case 'E': {
-       
+
         MoveToEx(hdc, startX, startY, NULL);
         LineTo(hdc, startX, startY + height);
         MoveToEx(hdc, startX, startY, NULL);
@@ -314,7 +376,7 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
         break;
     }
     case 'L': {
-      
+
         MoveToEx(hdc, startX, startY, NULL);
         LineTo(hdc, startX, startY + height);
         MoveToEx(hdc, startX, startY + height, NULL);
@@ -322,29 +384,29 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
         break;
     }
     case 'O': {
-        MoveToEx(hdc, startX, startY + height, NULL);       
-        LineTo(hdc, startX + width, startY + height);       
-        LineTo(hdc, startX + width, startY);                
-        LineTo(hdc, startX, startY);                       
-        LineTo(hdc, startX, startY + height);             
+        MoveToEx(hdc, startX, startY + height, NULL);
+        LineTo(hdc, startX + width, startY + height);
+        LineTo(hdc, startX + width, startY);
+        LineTo(hdc, startX, startY);
+        LineTo(hdc, startX, startY + height);
         break;
     }
     case 'W': {
-       
+
         int topLeftX = startX;
         int topRightX = startX + width;
         int bottomLeftX = startX + width / 4;
         int bottomMiddleX = startX + width / 2;
         int bottomRightX = startX + 3 * width / 4;
         int bottomY = startY + height;
-        MoveToEx(hdc, topLeftX, startY, NULL);           
-        LineTo(hdc, bottomLeftX, bottomY);                
-        LineTo(hdc, bottomMiddleX, startY + height / 2);   
-        LineTo(hdc, bottomRightX, bottomY);                
-        LineTo(hdc, topRightX, startY);                   
+        MoveToEx(hdc, topLeftX, startY, NULL);
+        LineTo(hdc, bottomLeftX, bottomY);
+        LineTo(hdc, bottomMiddleX, startY + height / 2);
+        LineTo(hdc, bottomRightX, bottomY);
+        LineTo(hdc, topRightX, startY);
         break;
     }
-     case 'R': {
+    case 'R': {
         MoveToEx(hdc, startX, startY, NULL);
         LineTo(hdc, startX, startY + height);
         MoveToEx(hdc, startX, startY, NULL);
@@ -356,24 +418,24 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
         MoveToEx(hdc, startX + width / 12, startY + height / 2, NULL);
         LineTo(hdc, startX + width / 2 + width / 8, startY + height);
         break;
-     }
+    }
 
-     case 'D': {
-       
-          MoveToEx(hdc, startX, startY, NULL);
-          LineTo(hdc, startX, startY + height);
-  
-          MoveToEx(hdc, startX, startY, NULL);
-          LineTo(hdc, startX + width / 2, startY);
-          MoveToEx(hdc, startX, startY + height, NULL);
-          LineTo(hdc, startX + width / 2, startY + height);
-          int radius = height / 1.8;
-          int centerX = startX + width / 2;
-          int centerY = startY + radius;
-          Arc(hdc, centerX - radius, centerY - radius, centerX + radius, centerY + radius, startX + width / 2, startY + height, startX + width / 2, startY);
+    case 'D': {
 
-          break;
-      }
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX, startY + height);
+
+        MoveToEx(hdc, startX, startY, NULL);
+        LineTo(hdc, startX + width / 2, startY);
+        MoveToEx(hdc, startX, startY + height, NULL);
+        LineTo(hdc, startX + width / 2, startY + height);
+        int radius = height / 1.8;
+        int centerX = startX + width / 2;
+        int centerY = startY + radius;
+        Arc(hdc, centerX - radius, centerY - radius, centerX + radius, centerY + radius, startX + width / 2, startY + height, startX + width / 2, startY);
+
+        break;
+    }
 
     }
 
@@ -382,6 +444,8 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
 
 
 
+
+std::map<uint16_t, std::vector<uint8_t>> spriteStorage;
 // Функція для малювання
 void DrawCommand(Command* command) {
     switch (command->opcode) {
@@ -459,7 +523,7 @@ void DrawCommand(Command* command) {
         int y = textCommand->y;
 
         for (char c : textCommand->text) {
-            drawCharacter(hdc, c, x, y, textCommand->color, 0.5f); 
+            drawCharacter(hdc, c, x, y, textCommand->color, 0.5f);
             x += 6;
         }
         break;
@@ -470,7 +534,7 @@ void DrawCommand(Command* command) {
 
         switch (orientation) {
         case 0:
-            SetGraphicsMode(hdc, GM_ADVANCED); 
+            SetGraphicsMode(hdc, GM_ADVANCED);
             ModifyWorldTransform(hdc, NULL, MWT_IDENTITY);
             break;
 
@@ -534,6 +598,48 @@ void DrawCommand(Command* command) {
         std::cout << "Display height: " << height << std::endl;
         break;
     }
+    case LOAD_SPRITE_OPCODE: {
+        LoadSprite* loadSpriteCommand = static_cast<LoadSprite*>(command);
+
+       
+        spriteStorage[loadSpriteCommand->index] = loadSpriteCommand->data;
+
+        std::cout << "Sprite with index " << loadSpriteCommand->index
+            << " loaded (" << loadSpriteCommand->width << "x" << loadSpriteCommand->height << ")." << std::endl;
+        break;
+    }
+   
+    case SHOW_SPRITE_OPCODE: {
+        ShowSprite* showSpriteCommand = static_cast<ShowSprite*>(command);
+
+   
+        auto it = spriteStorage.find(showSpriteCommand->index);
+        if (it == spriteStorage.end()) {
+            std::cerr << "Error: Sprite with index " << showSpriteCommand->index << " not found!" << std::endl;
+            break;
+        }
+
+        const std::vector<uint8_t>& spriteData = it->second;
+
+      
+        for (int row = 0; row < 16; ++row) { 
+            for (int col = 0; col < 16; ++col) { 
+                
+                uint8_t pixelColor = spriteData[row * 16 + col]; 
+                HBRUSH brush = CreateSolidBrush(RGB(pixelColor, pixelColor, pixelColor)); 
+                RECT rect = { showSpriteCommand->x + col * 10, showSpriteCommand->y + row * 10,
+                              showSpriteCommand->x + (col + 1) * 10, showSpriteCommand->y + (row + 1) * 10 };
+                FillRect(hdc, &rect, brush);
+                DeleteObject(brush);
+            }
+        }
+
+        std::cout << "Sprite with index " << showSpriteCommand->index
+            << " shown at (" << showSpriteCommand->x << ", " << showSpriteCommand->y << ")." << std::endl;
+        break;
+    }
+
+   
     }
 }
 

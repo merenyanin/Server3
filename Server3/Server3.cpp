@@ -263,23 +263,21 @@ public:
             if (byteArray.size() < 7) {
                 throw std::invalid_argument("Invalid parameters for load sprite");
             }
-            uint16_t index = parseInt16(byteArray, 1);  
-            uint16_t width = parseInt16(byteArray, 3); 
+            uint16_t index = parseInt16(byteArray, 1);
+            uint16_t width = parseInt16(byteArray, 3);
             uint16_t height = parseInt16(byteArray, 5);
 
-          
             size_t dataSize = byteArray.size() - 7;
-            if (dataSize != static_cast<size_t>(width * height)) {
+            if (dataSize != static_cast<size_t>(width * height * 3)) { // кожен піксель має 3 байти
                 throw std::invalid_argument("Sprite data size does not match dimensions");
             }
 
-        
             std::vector<uint8_t> data(byteArray.begin() + 7, byteArray.end());
 
-          
             command = new LoadSprite(index, width, height, data);
             break;
         }
+
 
         case SHOW_SPRITE_OPCODE: {
             if (byteArray.size() != 7) {
@@ -446,7 +444,7 @@ void drawCharacter(HDC hdc, char c, int x, int y, uint16_t color, float scale) {
 
 
 std::map<uint16_t, std::vector<uint8_t>> spriteStorage;
-// Функція для малювання
+
 void DrawCommand(Command* command) {
     switch (command->opcode) {
 
@@ -612,7 +610,6 @@ void DrawCommand(Command* command) {
     case SHOW_SPRITE_OPCODE: {
         ShowSprite* showSpriteCommand = static_cast<ShowSprite*>(command);
 
-   
         auto it = spriteStorage.find(showSpriteCommand->index);
         if (it == spriteStorage.end()) {
             std::cerr << "Error: Sprite with index " << showSpriteCommand->index << " not found!" << std::endl;
@@ -621,12 +618,14 @@ void DrawCommand(Command* command) {
 
         const std::vector<uint8_t>& spriteData = it->second;
 
-      
-        for (int row = 0; row < 16; ++row) { 
-            for (int col = 0; col < 16; ++col) { 
-                
-                uint8_t pixelColor = spriteData[row * 16 + col]; 
-                HBRUSH brush = CreateSolidBrush(RGB(pixelColor, pixelColor, pixelColor)); 
+        for (int row = 0; row < 16; ++row) {
+            for (int col = 0; col < 16; ++col) {
+                int pixelIndex = (row * 16 + col) * 3; 
+                uint8_t red = spriteData[pixelIndex];
+                uint8_t green = spriteData[pixelIndex + 1];
+                uint8_t blue = spriteData[pixelIndex + 2];
+
+                HBRUSH brush = CreateSolidBrush(RGB(red, green, blue));
                 RECT rect = { showSpriteCommand->x + col * 10, showSpriteCommand->y + row * 10,
                               showSpriteCommand->x + (col + 1) * 10, showSpriteCommand->y + (row + 1) * 10 };
                 FillRect(hdc, &rect, brush);
@@ -638,6 +637,7 @@ void DrawCommand(Command* command) {
             << " shown at (" << showSpriteCommand->x << ", " << showSpriteCommand->y << ")." << std::endl;
         break;
     }
+
 
    
     }
